@@ -1,14 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Outputs a fully inflected version of a lemmatized test set (provided on STDIN).
+Outputs a fully inflected version of a lemmatized test set (provided on STDIN). 
 If training data is provided, it will use a unigram model to select the form.
 
 usage: cat LEMMA_FILE | python inflect
-[-t TRAINING_PREFIX] [-l LEMMA_SUFFIX] [-w WORD_SUFFIX]
+       [-t TRAINING_PREFIX] [-l LEMMA_SUFFIX] [-w WORD_SUFFIX]
 """
-
-etas = {'unigram_lemma':0.01, 'bigram_lemma':0.99}
 
 import argparse
 import codecs
@@ -24,25 +22,27 @@ PARSER.add_argument("-w", type=str, default="form", help="word file suffix")
 args = PARSER.parse_args()
 
 # Python sucks at UTF-8
-sys.stdout = codecs.getwriter('utf-8')(sys.stdout)
-sys.stdin = codecs.getreader('utf-8')(sys.stdin)
+sys.stdout = codecs.getwriter('utf-8')(sys.stdout) 
+sys.stdin = codecs.getreader('utf-8')(sys.stdin) 
 
 # Build a model on the training data
 LEMMATA = defaultdict(defaultdict)
+weights = {'unigram_lemma':1, 'bigram_lemma':100, 'trigram_lemma':1000}
 
-def get_backoff_feats(ind, lemmata):
+def get_feats(ind, lemmata):
     f = {}
     f['unigram_lemma'] = lemmata[ind]
     f['bigram_lemma'] = ('<s> ' + lemmata[ind]) if ind == 0 else lemmata[ind-1] + ' ' + lemmata[ind]
+    f['trigram_lemma'] = ('<s> ' + f['bigram_lemma']) if ind <= 1 else lemmata[ind-2] + ' ' + f['bigram_lemma']
     return f
 
 def train_example(words, lemmata):
     for (it, (word, lemma)) in enumerate(izip(words, lemmata)):
-        for (k,v) in get_backoff_feats(it, lemmata).items():
+        for (k,v) in get_feats(it, lemmata).items():
             LEMMATA[v][word] = LEMMATA[v].get(word, 0.0) + 1.0
 
 def inflection_likelihood(ind, lemmata, word):
-    return sum([LEMMATA[v].get(word, 0.0) * etas[k] for (k,v) in get_backoff_feats(ind, lemmata).items()])
+    return sum([LEMMATA[v].get(word, 0.0) * weights[k] for (k,v) in get_feats(ind, lemmata).items()])
 
 def best_inflection(ind, lemmata):
     lemma = lemmata[ind]
