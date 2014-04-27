@@ -26,17 +26,17 @@ sys.stdout = codecs.getwriter('utf-8')(sys.stdout)
 sys.stdin = codecs.getreader('utf-8')(sys.stdin) 
 
 # Build a model on the training data
-LEMMAS = defaultdict(defaultdict)
+LEMMATA = defaultdict(defaultdict)
 if args.t:
     def combine(a, b): return '%s.%s' % (a, b)
     def utf8read(file): return codecs.open(file, 'r', 'utf-8')
-    for words, lemmas in izip(utf8read(combine(args.t, args.w)), utf8read(combine(args.t, args.l))):
-        for word, lemma in izip(words.rstrip().split(), lemmas.rstrip().split()):
-            LEMMAS[lemma][word] = LEMMAS[lemma].get(word,0) + 1
+    for words, lemmata in izip(utf8read(combine(args.t, args.w)), utf8read(combine(args.t, args.l))):
+        for word, lemma in izip(words.rstrip().split(), lemmata.rstrip().split()):
+            LEMMATA[lemma][word] = LEMMATA[lemma].get(word,0) + 1
 
 def best_inflection(lemma):
-    if LEMMAS.has_key(lemma):
-        return sorted(LEMMAS[lemma].keys(), lambda x,y: cmp(LEMMAS[lemma][y], LEMMAS[lemma][x]))[0]
+    if LEMMATA.has_key(lemma):
+        return sorted(LEMMATA[lemma].keys(), lambda x,y: cmp(LEMMATA[lemma][y], LEMMATA[lemma][x]))[0]
     return lemma
 
 # Inflect STDIN
