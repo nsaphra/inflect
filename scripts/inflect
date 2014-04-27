@@ -8,7 +8,7 @@ usage: cat LEMMA_FILE | python inflect
        [-t TRAINING_PREFIX] [-l LEMMA_SUFFIX] [-w WORD_SUFFIX]
 """
 
-etas = {'unigram_lemma':0.01, 'bigram_lemma':0.99} 
+weights = {'unigram_lemma':1, 'bigram_lemma':100} 
 
 import argparse
 import codecs
@@ -30,7 +30,7 @@ sys.stdin = codecs.getreader('utf-8')(sys.stdin)
 # Build a model on the training data
 LEMMATA = defaultdict(defaultdict)
 
-def get_backoff_feats(ind, lemmata):
+def get_feats(ind, lemmata):
     f = {}
     f['unigram_lemma'] = lemmata[ind]
     f['bigram_lemma'] = ('<s> ' + lemmata[ind]) if ind == 0 else lemmata[ind-1] + ' ' + lemmata[ind]
@@ -38,11 +38,11 @@ def get_backoff_feats(ind, lemmata):
 
 def train_example(words, lemmata):
     for (it, (word, lemma)) in enumerate(izip(words, lemmata)):
-        for (k,v) in get_backoff_feats(it, lemmata).items():
+        for (k,v) in get_feats(it, lemmata).items():
             LEMMATA[v][word] = LEMMATA[v].get(word, 0.0) + 1.0
 
 def inflection_likelihood(ind, lemmata, word):
-    return sum([LEMMATA[v].get(word, 0.0) * etas[k] for (k,v) in get_backoff_feats(ind, lemmata).items()])
+    return sum([LEMMATA[v].get(word, 0.0) * weights[k] for (k,v) in get_feats(ind, lemmata).items()])
 
 def best_inflection(ind, lemmata):
     lemma = lemmata[ind]
