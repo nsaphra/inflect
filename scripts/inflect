@@ -21,6 +21,8 @@ PARSER.add_argument("-t", type=str, default="data/train", help="training data pr
 PARSER.add_argument("-l", type=str, default="lemma", help="lemma file suffix")
 PARSER.add_argument("-w", type=str, default="form", help="word file suffix")
 PARSER.add_argument("-d", type=str, default="tree", help="tree file suffix")
+PARSER.add_argument("-p", type=str, default="tag", help="pos file suffix")
+PARSER.add_argument("-i", type=str, default="data/dtest", help="test data prefix")
 args = PARSER.parse_args()
 
 # Python sucks at UTF-8
@@ -29,15 +31,17 @@ sys.stdin = codecs.getreader('utf-8')(sys.stdin)
 
 # Build a model on the training data
 LEMMATA = defaultdict(defaultdict)
-weights = {'unigram_lemma':1, 'bigram_lemma':100, 'trigram_lemma':1000}
+TOTALS = defaultdict(float)
+weights = {'unigram_lemma':1.0, 'bigram_lemma':1.0, 'trigram_lemma':1.0, 'unigram_pos':1.0, 'bigram_pos':1.0, 'trigram_pos':1.0}
 
 class lemma_feats(object):
-    def __init__(self, lemmata):
+    def __init__(self, lemmata, pozzes):
         self.last_ind = -1
         self.feats = [{} for i in lemmata]
         self.lemmata = lemmata
+        self.pozzes = pozzes
 
-    def get_feats(self, ind, word=None):
+    def get_feats(self, ind):
         if self.last_ind >= ind:
             return self.feats[ind]
         assert self.last_ind >= ind - 1
@@ -51,7 +55,13 @@ class lemma_feats(object):
         self.feats[ind]['trigram_lemma'] = \
             ('<s> ' + self.feats[ind]['bigram_lemma']) if ind <= 1 \
             else self.lemmata[ind-2] + ' ' + self.feats[ind]['bigram_lemma']
-
+        self.feats[ind]['unigram_pos'] = '::POS: ' + self.pozzes[ind] + ' ' + lemma
+        self.feats[ind]['bigram_pos'] = \
+            ('::POS: <s> ' + self.feats[ind]['unigram_pos']) if ind == 0 \
+            else '::POS: ' + self.pozzes[ind-1] + ' ' + self.feats[ind]['unigram_pos']
+        self.feats[ind]['trigram_pos'] = \
+            ('::POS: <s> ' + self.feats[ind]['bigram_pos']) if ind == 0 \
+            else '::POS: ' + self.pozzes[ind-1] + ' ' + self.feats[ind]['bigram_pos']
         return self.feats[ind]
 
     def potential_inflections(self, ind):
@@ -64,7 +74,7 @@ class lemma_feats(object):
 
     def inflection_likelihood(self, ind, word):
         assert self.last_ind >= ind
-        return sum([LEMMATA[v].get(word, 0.0) * weights[k] \
+        return sum([LEMMATA[v].get(word, 0.0) * weights[k] / (TOTALS[v] if TOTALS[v] else 1.0) \
             for (k,v) in self.feats[ind].items()])
 
     def best_inflection(self, ind):
@@ -74,25 +84,25 @@ class lemma_feats(object):
         return sorted(self.potential_inflections(ind),
             key=lambda x : self.inflection_likelihood(ind, x))[-1]
 
-def train_example(words, lemmata):
-    feats = lemma_feats(lemmata)
+def train_example(words, lemmata, pozzes):
+    feats = lemma_feats(lemmata, pozzes)
     for (it, (word, lemma)) in enumerate(izip(words, lemmata)):
         for (k,v) in feats.get_feats(it).items():
             LEMMATA[v][word] = LEMMATA[v].get(word, 0.0) + 1.0
+            TOTALS[v] += 1.0
 
-def inflect_line(lemmata):
+def inflect_line(lemmata, pozzes):
     ret = [lemma for lemma in lemmata]
-    feats = lemma_feats(lemmata)
+    feats = lemma_feats(lemmata, pozzes)
     for it in range(len(lemmata)):
         ret[it] = feats.best_inflection(it)
     return ret
 
+def combine(a, b): return '%s.%s' % (a, b)
+def utf8read(file): return codecs.open(file, 'r', 'utf-8')
 if args.t:
-    def combine(a, b): return '%s.%s' % (a, b)
-    def utf8read(file): return codecs.open(file, 'r', 'utf-8')
-    for words, lemmas in izip(utf8read(combine(args.t, args.w)), utf8read(combine(args.t, args.l))):
-       train_example(words.rstrip().split(), lemmas.rstrip().split())
+    for pozzes, words, lemmas in izip(utf8read(combine(args.t, args.p)), utf8read(combine(args.t, args.w)), utf8read(combine(args.t, args.l))):
+       train_example(words.rstrip().split(), lemmas.rstrip().split(), pozzes.rstrip().split())
 
-# Inflect STDIN
-for line in sys.stdin:
-    print ' '.join(inflect_line(line.rstrip().split()))
+for lemmata, pozzes in izip(utf8read(combine(args.i, args.l)), utf8read(combine(args.i, args.p))):
+    print ' '.join(inflect_line(lemmata.rstrip().split(), pozzes.rstrip().split()))
