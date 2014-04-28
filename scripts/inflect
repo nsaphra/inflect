@@ -14,11 +14,13 @@ import sys
 import os
 from collections import defaultdict
 from itertools import izip
+from tree import DepTree
 
 PARSER = argparse.ArgumentParser(description="Inflect a lemmatized corpus")
 PARSER.add_argument("-t", type=str, default="data/train", help="training data prefix")
 PARSER.add_argument("-l", type=str, default="lemma", help="lemma file suffix")
 PARSER.add_argument("-w", type=str, default="form", help="word file suffix")
+PARSER.add_argument("-d", type=str, default="tree", help="tree file suffix")
 args = PARSER.parse_args()
 
 # Python sucks at UTF-8
@@ -29,32 +31,60 @@ sys.stdin = codecs.getreader('utf-8')(sys.stdin)
 LEMMATA = defaultdict(defaultdict)
 weights = {'unigram_lemma':1, 'bigram_lemma':100, 'trigram_lemma':1000}
 
-def get_feats(ind, lemmata):
-    f = {}
-    f['unigram_lemma'] = lemmata[ind]
-    f['bigram_lemma'] = ('<s> ' + lemmata[ind]) if ind == 0 else lemmata[ind-1] + ' ' + lemmata[ind]
-    f['trigram_lemma'] = ('<s> ' + f['bigram_lemma']) if ind <= 1 else lemmata[ind-2] + ' ' + f['bigram_lemma']
-    return f
+class lemma_feats(object):
+    def __init__(self, lemmata):
+        self.last_ind = -1
+        self.feats = [{} for i in lemmata]
+        self.lemmata = lemmata
+
+    def get_feats(self, ind, word=None):
+        if self.last_ind >= ind:
+            return self.feats[ind]
+        assert self.last_ind >= ind - 1
+        self.last_ind = ind
+
+        lemma = self.lemmata[ind]
+        self.feats[ind]['unigram_lemma'] = lemma
+        self.feats[ind]['bigram_lemma'] = \
+            ('<s> ' + lemma) if ind == 0 \
+            else self.lemmata[ind-1] + ' ' + self.lemmata[ind]
+        self.feats[ind]['trigram_lemma'] = \
+            ('<s> ' + self.feats[ind]['bigram_lemma']) if ind <= 1 \
+            else self.lemmata[ind-2] + ' ' + self.feats[ind]['bigram_lemma']
+
+        return self.feats[ind]
+
+    def potential_inflections(self, ind):
+        lemma = self.lemmata[ind]
+        if LEMMATA.has_key(lemma) and len(LEMMATA[lemma]) != 0:
+            return LEMMATA[lemma].keys()
+        else:
+            return [lemma]
+
+
+    def inflection_likelihood(self, ind, word):
+        assert self.last_ind >= ind
+        return sum([LEMMATA[v].get(word, 0.0) * weights[k] \
+            for (k,v) in self.feats[ind].items()])
+
+    def best_inflection(self, ind):
+        if self.last_ind < ind:
+            self.get_feats(ind)
+        lemma = self.lemmata[ind]
+        return sorted(self.potential_inflections(ind),
+            key=lambda x : self.inflection_likelihood(ind, x))[-1]
 
 def train_example(words, lemmata):
+    feats = lemma_feats(lemmata)
     for (it, (word, lemma)) in enumerate(izip(words, lemmata)):
-        for (k,v) in get_feats(it, lemmata).items():
+        for (k,v) in feats.get_feats(it).items():
             LEMMATA[v][word] = LEMMATA[v].get(word, 0.0) + 1.0
-
-def inflection_likelihood(ind, lemmata, word):
-    return sum([LEMMATA[v].get(word, 0.0) * weights[k] for (k,v) in get_feats(ind, lemmata).items()])
-
-def best_inflection(ind, lemmata):
-    lemma = lemmata[ind]
-    if LEMMATA.has_key(lemma) and len(LEMMATA[lemma]) != 0:
-        return sorted(LEMMATA[lemma].keys(),
-            key=lambda x : inflection_likelihood(ind, lemmata, x))[-1]
-    return lemma
 
 def inflect_line(lemmata):
     ret = [lemma for lemma in lemmata]
-    for (it, lemma) in enumerate(lemmata):
-        ret[it] = best_inflection(it, lemmata)
+    feats = lemma_feats(lemmata)
+    for it in range(len(lemmata)):
+        ret[it] = feats.best_inflection(it)
     return ret
 
 if args.t:
